@@ -190,8 +190,10 @@ static struct xsk_socket_info *xsk_configure_socket(struct config *cfg,
 	ret = xsk_socket__create(&xsk_info->xsk, cfg->ifname,
 				 cfg->xsk_if_queue, umem->umem, &xsk_info->rx,
 				 &xsk_info->tx, &xsk_cfg);
-	if (ret)
+	if (ret){
+		printf("The problem is in xsk_socket__create, ret=%d", ret);
 		goto error_exit;
+	}
 
 	if (custom_xsk) {
 		ret = xsk_socket__update_xskmap(xsk_info->xsk, xsk_map_fd);
