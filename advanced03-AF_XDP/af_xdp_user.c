@@ -31,8 +31,8 @@
 #include "../common/common_libbpf.h"
 
 #define NUM_FRAMES         4096
-// #define FRAME_SIZE         XSK_UMEM__DEFAULT_FRAME_SIZE
-#define FRAME_SIZE         2048
+#define FRAME_SIZE         XSK_UMEM__DEFAULT_FRAME_SIZE
+// #define FRAME_SIZE         2048
 #define RX_BATCH_SIZE      64
 #define INVALID_UMEM_FRAME UINT64_MAX
 
@@ -181,6 +181,25 @@ static struct xsk_socket_info *xsk_configure_socket(struct config *cfg,
 	xsk_info = calloc(1, sizeof(*xsk_info));
 	if (!xsk_info)
 		return NULL;
+	/* Initialize umem frame allocation */
+	for (i = 0; i < NUM_FRAMES; i++)
+		xsk_info->umem_frame_addr[i] = i * FRAME_SIZE;
+
+	xsk_info->umem_frame_free = NUM_FRAMES;
+	/* Stuff the receive path with buffers, we assume we have enough */
+	ret = xsk_ring_prod__reserve(&umem->fq,
+				     XSK_RING_PROD__DEFAULT_NUM_DESCS,
+				     &idx);
+
+	if (ret != XSK_RING_PROD__DEFAULT_NUM_DESCS)
+		goto error_exit;
+
+	for (i = 0; i < XSK_RING_PROD__DEFAULT_NUM_DESCS; i ++)
+		*xsk_ring_prod__fill_addr(&umem->fq, idx++) =
+			xsk_alloc_umem_frame(xsk_info);
+
+	xsk_ring_prod__submit(&umem->fq,
+			      XSK_RING_PROD__DEFAULT_NUM_DESCS);
 
 	xsk_info->umem = umem;
 	xsk_cfg.rx_size = XSK_RING_CONS__DEFAULT_NUM_DESCS;
@@ -206,26 +225,21 @@ static struct xsk_socket_info *xsk_configure_socket(struct config *cfg,
 			goto error_exit;
 	}
 
-	/* Initialize umem frame allocation */
-	for (i = 0; i < NUM_FRAMES; i++)
-		xsk_info->umem_frame_addr[i] = i * FRAME_SIZE;
 
-	xsk_info->umem_frame_free = NUM_FRAMES;
+	// /* Stuff the receive path with buffers, we assume we have enough */
+	// ret = xsk_ring_prod__reserve(&xsk_info->umem->fq,
+	// 			     XSK_RING_PROD__DEFAULT_NUM_DESCS,
+	// 			     &idx);
 
-	/* Stuff the receive path with buffers, we assume we have enough */
-	ret = xsk_ring_prod__reserve(&xsk_info->umem->fq,
-				     XSK_RING_PROD__DEFAULT_NUM_DESCS,
-				     &idx);
+	// if (ret != XSK_RING_PROD__DEFAULT_NUM_DESCS)
+	// 	goto error_exit;
 
-	if (ret != XSK_RING_PROD__DEFAULT_NUM_DESCS)
-		goto error_exit;
+	// for (i = 0; i < XSK_RING_PROD__DEFAULT_NUM_DESCS; i ++)
+	// 	*xsk_ring_prod__fill_addr(&xsk_info->umem->fq, idx++) =
+	// 		xsk_alloc_umem_frame(xsk_info);
 
-	for (i = 0; i < XSK_RING_PROD__DEFAULT_NUM_DESCS; i ++)
-		*xsk_ring_prod__fill_addr(&xsk_info->umem->fq, idx++) =
-			xsk_alloc_umem_frame(xsk_info);
-
-	xsk_ring_prod__submit(&xsk_info->umem->fq,
-			      XSK_RING_PROD__DEFAULT_NUM_DESCS);
+	// xsk_ring_prod__submit(&xsk_info->umem->fq,
+	// 		      XSK_RING_PROD__DEFAULT_NUM_DESCS);
 
 	return xsk_info;
 
