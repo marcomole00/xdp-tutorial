@@ -27,6 +27,7 @@ int xdp_sock_prog(struct xdp_md *ctx)
 	pkt_count = bpf_map_lookup_elem(&xdp_stats_map, &index);
 	if (pkt_count) {
 
+		bpf_printk("pkt_count %d", pkt_count);
 		/* We pass every other packet */
 		if ((*pkt_count)++ & 1)
 		return XDP_PASS;
@@ -37,6 +38,7 @@ int xdp_sock_prog(struct xdp_md *ctx)
 	if (bpf_map_lookup_elem(&xsks_map, &index))
 		return bpf_redirect_map(&xsks_map, index, 0);
 
+	bpf_printk("FINAL VERDICT: pass");
 	return XDP_PASS;
 }
 
