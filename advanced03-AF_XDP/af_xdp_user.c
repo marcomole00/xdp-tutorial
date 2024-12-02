@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <getopt.h>
 #include <locale.h>
+#include <netinet/in.h>
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
@@ -23,8 +24,8 @@
 #include <net/if.h>
 #include <linux/if_link.h>
 #include <linux/if_ether.h>
-#include <linux/ipv6.h>
-#include <linux/icmpv6.h>
+#include <linux/ip.h>
+#include <linux/icmp.h>
 
 #include "../common/common_params.h"
 #include "../common/common_user_bpf_xdp.h"
@@ -298,7 +299,7 @@ static bool process_packet(struct xsk_socket_info *xsk,
 {
 	uint8_t *pkt = xsk_umem__get_data(xsk->umem->buffer, addr);
 
-	/* Lesson#3: Write an IPv6 ICMP ECHO parser to send responses
+	/* Lesson#3: Write an ip ICMP ECHO parser to send responses
 	 *
 	 * Some assumptions to make it easier:
 	 * - No VLAN handling
@@ -307,39 +308,39 @@ static bool process_packet(struct xsk_socket_info *xsk,
 	 *   ICMPV6_ECHO_REPLY
 	 * - Recalculate the icmp checksum */
 
-	if (false) {
+	if (true) {
 		int ret;
 		uint32_t tx_idx = 0;
 		uint8_t tmp_mac[ETH_ALEN];
-		struct in6_addr tmp_ip;
+		struct in_addr tmp_ip;
 		struct ethhdr *eth = (struct ethhdr *) pkt;
-		struct ipv6hdr *ipv6 = (struct ipv6hdr *) (eth + 1);
-		struct icmp6hdr *icmp = (struct icmp6hdr *) (ipv6 + 1);
+		struct iphdr *ip = (struct iphdr *) (eth + 1);
+		struct icmphdr *icmp = (struct icmphdr *) (ip+ 1);
 
-		if (ntohs(eth->h_proto) != ETH_P_IPV6 ||
-		    len < (sizeof(*eth) + sizeof(*ipv6) + sizeof(*icmp)) ||
-		    ipv6->nexthdr != IPPROTO_ICMPV6 ||
-		    icmp->icmp6_type != ICMPV6_ECHO_REQUEST)
+		if (ntohs(eth->h_proto) != ETH_P_IP ||
+		    len < (sizeof(*eth) + sizeof(*ip) + sizeof(*icmp)) ||
+		    ip->protocol != IPPROTO_ICMP ||
+		    icmp->type != ICMP_ECHO)
 			return false;
 
 		memcpy(tmp_mac, eth->h_dest, ETH_ALEN);
 		memcpy(eth->h_dest, eth->h_source, ETH_ALEN);
 		memcpy(eth->h_source, tmp_mac, ETH_ALEN);
 
-		memcpy(&tmp_ip, &ipv6->saddr, sizeof(tmp_ip));
-		memcpy(&ipv6->saddr, &ipv6->daddr, sizeof(tmp_ip));
-		memcpy(&ipv6->daddr, &tmp_ip, sizeof(tmp_ip));
+		memcpy(&tmp_ip, &ip->saddr, sizeof(tmp_ip));
+		memcpy(&ip->saddr, &ip->daddr, sizeof(tmp_ip));
+		memcpy(&ip->daddr, &tmp_ip, sizeof(tmp_ip));
 
-		icmp->icmp6_type = ICMPV6_ECHO_REPLY;
+		icmp->type = ICMP_ECHOREPLY;
 
-		csum_replace2(&icmp->icmp6_cksum,
-			      htons(ICMPV6_ECHO_REQUEST << 8),
-			      htons(ICMPV6_ECHO_REPLY << 8));
+		csum_replace2(&icmp->checksum,
+			      htons(ICMP_ECHO << 8),
+			      htons(ICMP_ECHOREPLY << 8));
 
 		/* Here we sent the packet out of the receive port. Note that
 		 * we allocate one entry and schedule it. Your design would be
 		 * faster if you do batch processing/transmission */
-
+		printf("Echoing ping #%d\n", ntohs(icmp->un.echo.sequence));
 		ret = xsk_ring_prod__reserve(&xsk->tx, 1, &tx_idx);
 		if (ret != 1) {
 			/* No more transmit slots, drop the packet */
