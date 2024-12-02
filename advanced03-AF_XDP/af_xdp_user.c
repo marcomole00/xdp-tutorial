@@ -340,7 +340,6 @@ static bool process_packet(struct xsk_socket_info *xsk,
 		/* Here we sent the packet out of the receive port. Note that
 		 * we allocate one entry and schedule it. Your design would be
 		 * faster if you do batch processing/transmission */
-		printf("Echoing ping #%d\n", ntohs(icmp->un.echo.sequence));
 		ret = xsk_ring_prod__reserve(&xsk->tx, 1, &tx_idx);
 		if (ret != 1) {
 			/* No more transmit slots, drop the packet */
@@ -349,7 +348,7 @@ static bool process_packet(struct xsk_socket_info *xsk,
 
 		xsk_ring_prod__tx_desc(&xsk->tx, tx_idx)->addr = addr;
 		xsk_ring_prod__tx_desc(&xsk->tx, tx_idx)->len = len;
-		xsk_ring_prod__submit(&xsk->tx, 1);
+		// xsk_ring_prod__submit(&xsk->tx, 1);
 		xsk->outstanding_tx++;
 
 		xsk->stats.tx_bytes += len;
@@ -390,18 +389,22 @@ static void handle_receive_packets(struct xsk_socket_info *xsk)
 
 		xsk_ring_prod__submit(&xsk->umem->fq, stock_frames);
 	}
-
+	int batch_size_tx = 0;
 	/* Process received packets */
 	for (i = 0; i < rcvd; i++) {
 		uint64_t addr = xsk_ring_cons__rx_desc(&xsk->rx, idx_rx)->addr;
 		uint32_t len = xsk_ring_cons__rx_desc(&xsk->rx, idx_rx++)->len;
 
-		if (!process_packet(xsk, addr, len))
+		if (!process_packet(xsk, addr, len)){
 			xsk_free_umem_frame(xsk, addr);
+		} else {
+			batch_size_tx++;
+		}
 
 		xsk->stats.rx_bytes += len;
 	}
 
+	xsk_ring_prod__submit(&xsk->tx, batch_size_tx);
 	xsk_ring_cons__release(&xsk->rx, rcvd);
 	xsk->stats.rx_packets += rcvd;
 
