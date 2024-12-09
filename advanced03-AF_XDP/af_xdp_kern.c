@@ -17,9 +17,6 @@
 #include "../common/parsing_helpers.h"
 #include "../common/rewrite_helpers.h"
 
-#ifndef memcpy
-#define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
-#endif
 // Internet checksum calculation
 static __inline __u16 csum16(__u16 *buf, __u32 len) {
     __u32 sum = 0;
@@ -89,8 +86,9 @@ int xdp_sock_prog(struct xdp_md *ctx)
 	}
 	int seq = bpf_ntohs((int) icmp->un.echo.sequence);
 	if( (seq / 10) % 2 == 0 ){
-		bpf_printk("%d",seq);
+		bpf_printk("%d %x",seq, eth->h_dest[0]);
 		swap_src_dst_mac(eth);
+		bpf_printk("%x", eth->h_dest[0] );
 		swap_src_dst_ipv4(ip);
 		icmp->type = ICMP_ECHOREPLY;
 		icmp->checksum = 0;
