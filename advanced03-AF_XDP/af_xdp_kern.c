@@ -17,20 +17,29 @@
 #include "../common/parsing_helpers.h"
 #include "../common/rewrite_helpers.h"
 
-// Internet checksum calculation
-static int compute_icmp_checksum(struct icmphdr *icmp)
-{
-	int sum = 0;
-	int i;
 
-	icmp->checksum = 0;
-	for (i = 0; i < sizeof(struct icmphdr) / 2; i++)
-		sum += ((__u16 *)icmp)[i];
+static __always_inline __u16 compute_icmp_checksum(struct icmphdr *icmp, void *data_end) {
+    __u32 sum = 0;
+    __u16 *ptr = (__u16 *)icmp;
 
-	return ~((sum & 0xffff) + (sum >> 16));
+    // Calculate the checksum
+    while ((void *)ptr + sizeof(__u16) <= data_end) {
+        sum += *ptr++;
+    }
+
+    // Add the remaining byte if the packet length is odd
+    if ((void *)ptr < data_end) {
+        sum += *(__u8 *)ptr;
+    }
+
+    // Fold 32-bit sum to 16 bits
+    while (sum >> 16) {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+
+    return ~sum;
+
 }
-
-
 struct {
 	__uint(type, BPF_MAP_TYPE_XSKMAP);
 	__type(key, __u32);
@@ -76,6 +85,7 @@ int xdp_sock_prog(struct xdp_md *ctx)
 		bpf_printk("packet is icmp but not an echo");
 		goto pass;
 	}
+
 	int seq = bpf_ntohs((int) icmp->un.echo.sequence);
 	if( (seq / 10) % 2 == 0 ){
 		bpf_printk("%d %x",seq, eth->h_dest[0]);
@@ -84,7 +94,7 @@ int xdp_sock_prog(struct xdp_md *ctx)
 		swap_src_dst_ipv4(ip);
 		icmp->type = ICMP_ECHOREPLY;
 		icmp->checksum = 0;
-		icmp->checksum = compute_icmp_checksum(icmp);
+		icmp->checksum = compute_icmp_checksum(icmp, data_end);
 		return XDP_TX;
 		
 		}
