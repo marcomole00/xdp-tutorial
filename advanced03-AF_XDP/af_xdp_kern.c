@@ -18,28 +18,7 @@
 #include "../common/rewrite_helpers.h"
 
 
-static __always_inline __u16 compute_icmp_checksum(struct icmphdr *icmp, void *data_end) {
-    __u32 sum = 0;
-    __u16 *ptr = (__u16 *)icmp;
 
-    // Calculate the checksum
-    while ((void *)ptr + sizeof(__u16) <= data_end) {
-        sum += *ptr++;
-    }
-
-    // Add the remaining byte if the packet length is odd
-    if ((void *)ptr < data_end) {
-        sum += *(__u8 *)ptr;
-    }
-
-    // Fold 32-bit sum to 16 bits
-    while (sum >> 16) {
-        sum = (sum & 0xFFFF) + (sum >> 16);
-    }
-
-    return ~sum;
-
-}
 struct {
 	__uint(type, BPF_MAP_TYPE_XSKMAP);
 	__type(key, __u32);
@@ -86,20 +65,26 @@ int xdp_sock_prog(struct xdp_md *ctx)
 		goto pass;
 	}
 
-	int seq = bpf_ntohs((int) icmp->un.echo.sequence);
-	if( (seq / 10) % 2 == 0 ){
-		bpf_printk("%d %x",seq, eth->h_dest[0]);
-		swap_src_dst_mac(eth);
-		bpf_printk("%x", eth->h_dest[0] );
-		swap_src_dst_ipv4(ip);
-		icmp->type = ICMP_ECHOREPLY;
-		icmp->checksum = 0;
-		icmp->checksum = compute_icmp_checksum(icmp, data_end);
-		return XDP_TX;
-		
-		}
-	
-	pkt_count = bpf_map_lookup_elem(&xdp_stats_map, &index);
+        int seq = bpf_ntohs((int)icmp->un.echo.sequence);
+        if ((seq / 10) % 2 == 0) {
+          bpf_printk("%d %x", seq, eth->h_dest[0]);
+          swap_src_dst_mac(eth);
+          bpf_printk("%x", eth->h_dest[0]);
+          swap_src_dst_ipv4(ip);
+          icmp->type = ICMP_ECHOREPLY;
+
+          __u16 old_csum = icmp->checksum;
+          __u32 csum = old_csum;
+          csum += ICMP_ECHO;
+          csum -= ICMP_ECHOREPLY;
+          csum = (csum & 0xFFFF) + (csum >> 16);
+          csum = (csum & 0xFFFF) + (csum >> 16);
+          icmp->checksum = (__u16)csum;
+          return XDP_TX;
+
+        }
+
+        pkt_count = bpf_map_lookup_elem(&xdp_stats_map, &index);
 	if (pkt_count) {
 
 		bpf_printk("pkt_count %d", pkt_count);
