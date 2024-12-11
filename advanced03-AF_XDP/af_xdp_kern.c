@@ -18,27 +18,19 @@
 #include "../common/rewrite_helpers.h"
 
 // Internet checksum calculation
-static __inline __u16 csum16(__u16 *buf, __u32 len) {
-    __u32 sum = 0;
+static int compute_icmp_checksum(struct icmphdr *icmp)
+{
+	int sum = 0;
+	int i;
 
-    // Sum up 16-bit words
-    for (__u32 i = 0; i < len / 2; i++) {
-        sum += buf[i];
-        if (sum > 0xFFFF) { // Handle carry
-            sum = (sum & 0xFFFF) + (sum >> 16);
-        }
-    }
+	icmp->checksum = 0;
+	for (i = 0; i < sizeof(struct icmphdr) / 2; i++)
+		sum += ((__u16 *)icmp)[i];
 
-    // If the length is odd, add the last byte
-    if (len & 1) {
-        sum += *((__u8 *)buf + len - 1);
-        if (sum > 0xFFFF) {
-            sum = (sum & 0xFFFF) + (sum >> 16);
-        }
-    }
-
-    return ~sum; // Return one's complement of the sum
+	return ~((sum & 0xffff) + (sum >> 16));
 }
+
+
 struct {
 	__uint(type, BPF_MAP_TYPE_XSKMAP);
 	__type(key, __u32);
@@ -92,7 +84,7 @@ int xdp_sock_prog(struct xdp_md *ctx)
 		swap_src_dst_ipv4(ip);
 		icmp->type = ICMP_ECHOREPLY;
 		icmp->checksum = 0;
-		icmp->checksum = csum16((__u16 *)icmp, 4);
+		icmp->checksum = compute_icmp_checksum(icmp);
 		return XDP_TX;
 		
 		}
